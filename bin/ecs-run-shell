@@ -29,7 +29,7 @@ echo EC2 Instance: $EC2_INSTANCE
 echo Waiting for task to be running...
 aws ecs wait tasks-running --tasks $TASK_ID --cluster $CLUSTER
 
-EC2_IP=$( aws ec2 describe-instances --instance-ids $EC2_INSTANCE | jq -r '.Reservations[0].Instances[0].PublicIpAddress' )
+EC2_IP=$( aws ec2 describe-instances --instance-ids $EC2_INSTANCE | jq -r '.Reservations[0].Instances[0].PrivateIpAddress' )
 [ $? = 0 ] || exit 1
 echo SSH-ing to: ec2-user@$EC2_IP
 
