@@ -12,7 +12,7 @@ fi
 CONTAINER_NAME=$( aws ecs describe-task-definition --task $TASK_NAME | jq -r '.taskDefinition.containerDefinitions[0].name' )
 echo Task container name: $CONTAINER_NAME
 
-RUNTASK=$( aws ecs run-task --cluster=$CLUSTER --task-definition=$TASK_NAME --overrides $( jq -n -c '.containerOverrides[0] = (.command = ["sleep","30m"] | .name = "'$CONTAINER_NAME'")' ) )
+RUNTASK=$( aws ecs run-task --cluster=$CLUSTER --task-definition=$TASK_NAME --overrides $( jq -n -c '.containerOverrides[0] = (.command = ["sleep","30m"] | .name = "'$CONTAINER_NAME'")' ) --started-by "ecs-run-shell" )
 [ $? = 0 ] || exit 1
 
 TASK_ID=$( echo "$RUNTASK" | jq -r '.tasks[0].taskArn' )
