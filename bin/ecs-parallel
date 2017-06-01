@@ -24,61 +24,61 @@ parser.add_argument('--jobs', dest='jobs', type=int, default=1)
 parser.add_argument('--cluster', dest='cluster', type=str, default='futrli')
 
 def new_task(cluster, task_definition, container_name, interpolated_command):
-	task_data = ecs.run_task(
-		cluster=cluster,
-		taskDefinition=task_definition,
-		overrides={
-			'containerOverrides': [{
-				'name': container_name,
-				'command': interpolated_command.split(' '),
-			}],
-		},
-	)
-	return task_data['tasks'][0]['taskArn']
+    task_data = ecs.run_task(
+        cluster=cluster,
+        taskDefinition=task_definition,
+        overrides={
+            'containerOverrides': [{
+                'name': container_name,
+                'command': interpolated_command.split(' '),
+            }],
+        },
+    )
+    return task_data['tasks'][0]['taskArn']
 
 def check_finished(cluster, arn):
-	task_data = ecs.describe_tasks(
-		cluster=cluster,
-		tasks=[arn],
-	)
-	if not len(task_data['tasks']):
-		assert False, task_data['failures']
-	return task_data['tasks'][0]['lastStatus'] == 'STOPPED'
+    task_data = ecs.describe_tasks(
+        cluster=cluster,
+        tasks=[arn],
+    )
+    if not len(task_data['tasks']):
+        assert False, task_data['failures']
+    return task_data['tasks'][0]['lastStatus'] == 'STOPPED'
 
 def get_logs(task_definition, container_name, arn):
-	'''
-	Be warned! This only works because we set the log prefix to be the same as the task definition name.
-	'''
-	_, task_id = arn.split('/')
-	log_stream_name = '{}/{}/{}'.format(task_definition, container_name, task_id)
-	events = logs.filter_log_events(
-		logGroupName=task_definition,
-		logStreamNames=[log_stream_name],
-		startTime=0,
-		endTime=3000000000000,
-	)
-	return '\n'.join(map(lambda event: '{}: {}'.format(task_id, event['message']), events['events']))
+    '''
+    Be warned! This only works because we set the log prefix to be the same as the task definition name.
+    '''
+    _, task_id = arn.split('/')
+    log_stream_name = '{}/{}/{}'.format(task_definition, container_name, task_id)
+    events = logs.filter_log_events(
+        logGroupName=task_definition,
+        logStreamNames=[log_stream_name],
+        startTime=0,
+        endTime=3000000000000,
+    )
+    return '\n'.join(map(lambda event: '{}: {}'.format(task_id, event['message']), events['events']))
 
 
 def run(task_definition, command, jobs, cluster):
-	task_definition_data = ecs.describe_task_definition(taskDefinition=task_definition)
-	container_name = task_definition_data['taskDefinition']['containerDefinitions'][0]['name']
-	finished = []
-	running = set()
-	for arg in sys.stdin.readlines():
-		running.add(new_task(cluster, task_definition, container_name, command.format(arg.strip())))
-		while True:
-			# might need to start a new task
-			if len(running) < jobs:
-				break
-			time.sleep(1)
-			# check for finished tasks
-			for arn in running.copy():
-				if check_finished(cluster, arn):
-					running.remove(arn)
-					finished.append(arn)
-					print(get_logs(task_definition, container_name, arn))
+    task_definition_data = ecs.describe_task_definition(taskDefinition=task_definition)
+    container_name = task_definition_data['taskDefinition']['containerDefinitions'][0]['name']
+    finished = []
+    running = set()
+    for arg in sys.stdin.readlines():
+        running.add(new_task(cluster, task_definition, container_name, command.format(arg.strip())))
+        while True:
+            # might need to start a new task
+            if len(running) < jobs:
+                break
+            time.sleep(1)
+            # check for finished tasks
+            for arn in running.copy():
+                if check_finished(cluster, arn):
+                    running.remove(arn)
+                    finished.append(arn)
+                    print(get_logs(task_definition, container_name, arn))
 
 if __name__ == "__main__":
-	args = parser.parse_args()
-	run(**vars(args))
+    args = parser.parse_args()
+    run(**vars(args))
