@@ -13,6 +13,7 @@ import argparse
 import sys
 import time
 import json
+import shlex
 
 ecs = boto3.client('ecs')
 logs = boto3.client('logs')
@@ -30,7 +31,7 @@ def new_task(cluster, task_definition, container_name, interpolated_command):
         overrides={
             'containerOverrides': [{
                 'name': container_name,
-                'command': interpolated_command.split(' '),
+                'command': shlex.split(interpolated_command),
             }],
         },
     )
@@ -65,12 +66,23 @@ def run(task_definition, command, jobs, cluster):
     container_name = task_definition_data['taskDefinition']['containerDefinitions'][0]['name']
     finished = []
     running = set()
-    for arg in sys.stdin.readlines():
-        running.add(new_task(cluster, task_definition, container_name, command.format(arg.strip())))
+    if command.find('{}') >= 0:
+        for arg in sys.stdin.readlines():
+            running.add(new_task(cluster, task_definition, container_name, command.format(arg.strip())))
+            while True:
+                # might need to start a new task
+                if len(running) < jobs:
+                    break
+                time.sleep(1)
+                # check for finished tasks
+                for arn in running.copy():
+                    if check_finished(cluster, arn):
+                        running.remove(arn)
+                        finished.append(arn)
+                        print(get_logs(task_definition, container_name, arn))
+    else:
+        running.add(new_task(cluster, task_definition, container_name, command))
         while True:
-            # might need to start a new task
-            if len(running) < jobs:
-                break
             time.sleep(1)
             # check for finished tasks
             for arn in running.copy():
@@ -78,6 +90,8 @@ def run(task_definition, command, jobs, cluster):
                     running.remove(arn)
                     finished.append(arn)
                     print(get_logs(task_definition, container_name, arn))
+            if not running:
+                break
 
 if __name__ == "__main__":
     args = parser.parse_args()
