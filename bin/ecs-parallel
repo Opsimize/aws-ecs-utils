@@ -1,0 +1,98 @@
+#!/usr/bin/env python
+'''
+This is intended to work roughly like GNU Parallel:
+- A stream of arguments are provided on stdin.
+- The argument is interpolated with the command string, by default this is by appending it.
+- An ECS task is created for each argument in the stream, based on a supplied task definition,
+ with the interpolated command.
+- A set number of tasks are maintained until the input stream is exhausted.
+'''
+
+import boto3
+import argparse
+import sys
+import time
+import json
+import shlex
+
+ecs = boto3.client('ecs')
+logs = boto3.client('logs')
+
+parser = argparse.ArgumentParser()
+parser.add_argument('task_definition', type=str, help='the task definition to use')
+parser.add_argument('command', type=str, help='the command to be run. a python .format() string with one positional parameter')
+parser.add_argument('--jobs', dest='jobs', type=int, default=1)
+parser.add_argument('--cluster', dest='cluster', type=str, default='futrli')
+
+def new_task(cluster, task_definition, container_name, interpolated_command):
+    task_data = ecs.run_task(
+        cluster=cluster,
+        taskDefinition=task_definition,
+        overrides={
+            'containerOverrides': [{
+                'name': container_name,
+                'command': shlex.split(interpolated_command),
+            }],
+        },
+    )
+    return task_data['tasks'][0]['taskArn']
+
+def check_finished(cluster, arn):
+    task_data = ecs.describe_tasks(
+        cluster=cluster,
+        tasks=[arn],
+    )
+    if not len(task_data['tasks']):
+        assert False, task_data['failures']
+    return task_data['tasks'][0]['lastStatus'] == 'STOPPED'
+
+def get_logs(task_definition, container_name, arn):
+    '''
+    Be warned! This only works because we set the log prefix to be the same as the task definition name.
+    '''
+    _, task_id = arn.split('/')
+    log_stream_name = '{}/{}/{}'.format(task_definition, container_name, task_id)
+    events = logs.filter_log_events(
+        logGroupName=task_definition,
+        logStreamNames=[log_stream_name],
+        startTime=0,
+        endTime=3000000000000,
+    )
+    return '\n'.join(map(lambda event: '{}: {}'.format(task_id, event['message']), events['events']))
+
+
+def run(task_definition, command, jobs, cluster):
+    task_definition_data = ecs.describe_task_definition(taskDefinition=task_definition)
+    container_name = task_definition_data['taskDefinition']['containerDefinitions'][0]['name']
+    finished = []
+    running = set()
+    if command.find('{}') >= 0:
+        for arg in sys.stdin.readlines():
+            running.add(new_task(cluster, task_definition, container_name, command.format(arg.strip())))
+            while True:
+                # might need to start a new task
+                if len(running) < jobs:
+                    break
+                time.sleep(1)
+                # check for finished tasks
+                for arn in running.copy():
+                    if check_finished(cluster, arn):
+                        running.remove(arn)
+                        finished.append(arn)
+                        print(get_logs(task_definition, container_name, arn))
+    else:
+        running.add(new_task(cluster, task_definition, container_name, command))
+        while True:
+            time.sleep(1)
+            # check for finished tasks
+            for arn in running.copy():
+                if check_finished(cluster, arn):
+                    running.remove(arn)
+                    finished.append(arn)
+                    print(get_logs(task_definition, container_name, arn))
+            if not running:
+                break
+
+if __name__ == "__main__":
+    args = parser.parse_args()
+    run(**vars(args))
