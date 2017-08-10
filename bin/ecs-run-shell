@@ -18,6 +18,7 @@ then
 fi
 
 IMAGE=$(aws ecs describe-task-definition --task $TASK_NAME | jq --arg CONTAINER_NAME $CONTAINER_NAME -r '.taskDefinition.containerDefinitions[] | select(.name == $CONTAINER_NAME) .image')
+echo Running image: $IMAGE
 
 echo Task container name: $CONTAINER_NAME
 
