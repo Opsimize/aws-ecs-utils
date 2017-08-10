@@ -17,7 +17,7 @@ then
     CONTAINER_NAME=${CONTAINER_NAME::-6}
 fi
 
-IMAGE=$(aws ecs describe-task-definition --task admin-panel-staging | jq --arg CONTAINER_NAME $CONTAINER_NAME -r '.taskDefinition.containerDefinitions[] | select(.name == $CONTAINER_NAME) .image')
+IMAGE=$(aws ecs describe-task-definition --task $TASK_NAME | jq --arg CONTAINER_NAME $CONTAINER_NAME -r '.taskDefinition.containerDefinitions[] | select(.name == $CONTAINER_NAME) .image')
 
 echo Task container name: $CONTAINER_NAME
 
